@@ -3,7 +3,7 @@ var express = require('express');
 var path = require('path');
 var fs = require('fs');
 var app = express();
-var curruser = "";
+var session = require('express-session');
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
@@ -11,10 +11,11 @@ app.set('view engine', 'ejs');
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(session({secret: '0', saveUninitialized: true, resave: true }))
 
 //middleware:
 function loggedIn(req, res, next) {
-  if (curruser != "") {
+  if (!req.session.user) {
       next();
   } else {
       res.redirect('/');
@@ -23,7 +24,7 @@ function loggedIn(req, res, next) {
 
 //login page starts here:
 app.get('/', function(req, res) {
-  curruser = "";
+  req.session.username = null
   res.render('login', { title: 'Express', error: ""});
 });
 
@@ -33,9 +34,14 @@ app.post('/', function(req, res) {
   var pass = req.body.password;
 
   if(registered(users,name,pass)){
-    curruser = name;
-    res.render('home', { title: 'Express'});
-  }
+    if(req.session.username != null){
+      res.render('login', { title: 'Express', error: "user "+ req.session.username + " is currently logged in using this session"});
+    }
+    else{
+      req.session.username = name;
+      res.render('home', { title: 'Express'}); 
+    }
+  } 
   else if(valid(users,name)){
     res.render('login', { title: 'Express', error: "there is no registered user with that username" });
   }
@@ -88,11 +94,11 @@ app.get('/drama',loggedIn,function(req, res,next) {
 });
 
 app.get('/godfather', loggedIn,function(req, res,next) {
-  res.render('godfather', { title: 'Express' , user: curruser });
+  res.render('godfather', { title: 'Express' , inwatch: "" });
 });
 
 app.get('/godfather2', loggedIn,function(req, res,next) {
-  res.render('godfather2', { title: 'Express' });
+  res.render('godfather2', { title: 'Express', inwatch: "" });
 });
 //end of drama
 
@@ -102,11 +108,11 @@ app.get('/horror',loggedIn, function(req, res,next) {
 });
 
 app.get('/scream',loggedIn, function(req, res,next) {
-  res.render('scream', { title: 'Express' });
+  res.render('scream', { title: 'Express', inwatch: "" });
 });
 
 app.get('/conjuring',loggedIn, function(req, res,next) {
-  res.render('conjuring', { title: 'Express' });
+  res.render('conjuring', { title: 'Express', inwatch: "" });
 });
 //end of horror
 
@@ -116,23 +122,42 @@ app.get('/action', loggedIn,function(req, res,next) {
 });
 
 app.get('/fightclub', loggedIn,function(req, res,next) {
-  res.render('fightclub', { title: 'Express' });
+  res.render('fightclub', { title: 'Express', inwatch: "" });
 });
 
 app.get('/darkknight', loggedIn,function(req, res,next) {
-  res.render('darkknight', { title: 'Express' });
+  res.render('darkknight', { title: 'Express', inwatch: "" });
 });
 //end of action
 
 //watchlist:
 app.get('/watchlist',loggedIn, function(req, res,next) {
   let users = loadUsers();
-  res.render('watchlist', { title: 'Express', watchlist: loadWatchList(users,curruser) });
+  res.render('watchlist', { title: 'Express', watchlist: loadWatchList(users,req.session.username) });
 });
 
 app.post('/addmovie', function(req, res) {
-  res.redirect('back');
-  addToWatchList(req.body.movieName)
+  var link = "";
+
+  switch (req.body.movieName) {
+    case "The Godfather (1972)": link = "godfather";
+    break;
+    case "The Godfather: Part II (1974)": link = "godfather2";
+    break;
+    case "Scream (1996)": link = "scream";
+    break;
+    case "The Conjuring (2013)": link = "conjuring";
+    break;
+    case "Fight Club (1999)": link = "fightclub";
+    break;
+    case "The Dark Knight (2008)": link = "darkknight";
+    break;
+    default: break;
+  }
+  if(!addToWatchList(req.body.movieName,req.session.username))
+    res.render(link, { title: 'Express' , inwatch: "Movie already in watchlist" });
+  else
+    res.redirect('back');
   
 })
 //end of watchlist
@@ -183,17 +208,20 @@ let loadWatchList = function(obj, user){
   return null;
 }
 
-let addToWatchList = function(title){
+let addToWatchList = function(title,username){
   let users = loadUsers();
   for(var i in users){
-    if (users[i].username == curruser){
+    if (users[i].username == username){
       for(var j in users[i].watchlist){
-        if(users[i].watchlist[j] == title) return
+        if(users[i].watchlist[j] == title){
+          return false
+        }
       }
       users[i].watchlist.push(title);
     } 
   }
   fs.writeFileSync('users.json', JSON.stringify(users))
+  return true
 }
 
 
@@ -232,15 +260,21 @@ function canBe(inp, str){
 
   if(inp == "") return true
 
-  for(var i in clean){
-    
-    if(clean[i] != str[i]){
-      return false
+  for(var i = 0; i < str.length - clean.length; i++){
+
+    if(clean[0] == str[i]){
+      var j = 0;
+      for(j = 1; j < clean.length; j++){
+        if(clean[j] != str[j+i]){
+          break
+        }
+      }
+      if(j == clean.length) return true
     }
 
   }
 
-  return true
+  return false
 }
 
 function registered(obj,user,pass) {
@@ -256,5 +290,6 @@ function registered(obj,user,pass) {
 
 module.exports = app;
 
+//set port:
 app.listen(3000, function(){ console.log("running") });
 //---------------------------------------------------
